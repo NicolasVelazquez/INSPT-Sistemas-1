@@ -48,14 +48,13 @@ int buscarIdent(char *, tablaDeIdent, int, int);
 
 char* generarNombreEjecutable(char* nombre, char nombreExe[]);
 
-void cargarCodigoEjecutable(byte vector[], int *tope);
+void cargarCodigoEjecutable(byte memoria[], int *tope);
 
-void grabarArchivoEjecutable(byte vector[], int *tope, char* nombre);
+void grabarArchivoEjecutable(byte memoria[], int *tope, char* nombre);
 
-void cargarByte (byte n, byte memoria[], int *tope);
-//carga 1 byte en memoria e incrementa topememoria en 1
-void cargarInt(int n,byte memoria[], int *tope);
-//carga 4 bytes en memoria e incrementa topememoria en 4
+void cargarByte(byte n, byte memoria[], int *tope);//carga 1 byte en memoria e incrementa topememoria en 1
+
+void cargarInt(int n,byte memoria[], int *tope);//carga 4 bytes en memoria e incrementa topememoria en 4
 
 void cargarIntEn(int n, byte memoria [], int dirMem);
 
@@ -72,8 +71,6 @@ tSimbolo condicion(tSimbolo, FILE*, tablaDeIdent,int base, int, byte memoria[], 
 tSimbolo expresion(tSimbolo, FILE*, tablaDeIdent,int base, int, byte memoria[], int *tope);
 tSimbolo termino(tSimbolo, FILE*, tablaDeIdent,int base, int, byte memoria[], int *tope);
 tSimbolo factor(tSimbolo, FILE*, tablaDeIdent,int base, int, byte memoria[], int *tope);
-
-
 
 /*** MAIN ***/
 
@@ -115,6 +112,7 @@ int main(int argc, char* argv[]) {
         }else {
             error(0, s.cadena);
         }
+
         fclose(archivo);
     }
 
@@ -138,37 +136,49 @@ tSimbolo programa (tSimbolo s, FILE *archivo, byte memoria[], int *tope){
 
     tablaDeIdent tabla;
     int contadorVariables = 0;
-    //llamar cargar memoria;
+
     cargarByte(0xBF,memoria, tope);// mov edi
     cargarInt(0, memoria, tope);
+
     s = bloque(s, archivo, tabla, 0, memoria, tope, &contadorVariables);
+
     if(s.simbolo==PUNTO){
         s=aLex(archivo);
         int distancia = 0x588-(*tope+5);
         cargarByte(0xE9,memoria,tope);
         cargarInt(distancia,memoria,tope);
 
-        cargarIntEn(leerIntDe(212, memoria)+leerIntDe(204, memoria)+(*tope-0x200),memoria,0x701);//212 es el tamaño del header, 204 el tamaño de algo.
+        cargarIntEn(leerIntDe(212, memoria)+leerIntDe(200, memoria)+(*tope-0x200),memoria,0x701);//212 es el tamaño del header, 204 el tamaño de algo.
                                                                                             //se carga en la posición 1793 el tamaño del text
         int i;
-        for(i=0;i<contadorVariables;i++){
-            //agregar 4 ceros por cada variable
-            cargarInt(0,memoria,tope);
+        for(i = 0; i<contadorVariables / 4; i++){
+            cargarInt(0,memoria,tope);//Carga 1 cero por cada variable (4 bytes, ints de 32 bits)
         }
-        cargarIntEn(416,memoria, *tope-0x200);
-        //buscar todo esto de abajo
+
+        cargarIntEn((*tope)-0x200, memoria, 416);
         //en 416 poner tope - 0x200
         //en 419 poner tope - 0x200
 
-        int tamano=leerIntDe(220,memoria);
+        int tamano = leerIntDe(220,memoria);
 
-        while (*tope%tamano!=0){ //se llena el archivo para que sea multiplo de 512 bytes
+        while ((*tope) % tamano != 0){ //se llena el archivo para que sea multiplo de 512 bytes
             cargarByte(0x00,memoria,tope);
         }
+
+        cargarIntEn((*tope)-0x200, memoria, 188);
+        cargarIntEn((*tope)-0x200, memoria, 424);
+
+        int tamanoCodigo = leerIntDe(188, memoria);
+        int tamanoData = leerIntDe(424, memoria);
+        int seccion = leerIntDe(216, memoria);
+        cargarIntEn((2 + tamanoCodigo / seccion) * seccion, memoria, 240);
+        cargarIntEn((2 + tamanoData / seccion) * seccion, memoria, 208);
+
     } else error(0,s.cadena);
 
     return s;
 }
+
 
 tSimbolo bloque (tSimbolo s, FILE *archivo, tablaDeIdent tabla, int base, byte memoria[], int *tope, int *contadorVariables){
     int desplazamiento = 0;
@@ -1027,21 +1037,19 @@ char* generarNombreEjecutable(char nombre[],char nombreExe[]){
 	}
 
 	for( i=largo;i>0; i--){
-
-       if(nombre[i]=='.'){
-        posicion=i;
-        break;
-       }
+        if(nombre[i]=='.'){
+            posicion=i;
+            break;
+        }
 	}
 
     for(j=0;j<=posicion;j++){
         nombreExe[j]=nombre[j];
     }
-    printf("Antes: %s\n",nombreExe);
 	nombreExe[posicion+1] = '\0';
 
     strcat(nombreExe, "exe");
-    printf("[%s]\n", nombreExe);
+    printf("Nombre generado: [%s]\n", nombreExe);
     return nombreExe;
 }
 
@@ -2843,20 +2851,18 @@ void cargarCodigoEjecutable(byte memoria[], int *tope){
     *tope=1792;
 }
 
-void grabarArchivoEjecutable(byte vector[], int *tope, char* nombre){
+void grabarArchivoEjecutable(byte memoria[], int *tope, char* nombre){
     FILE * archivo;
 
     int i;
-    archivo=fopen(nombre,"w+b");
-    printf("Antes del for\n");
+    archivo=fopen(nombre,"wb");
     printf("%d\n", tope);
-    printf("%s", nombre);
+    printf("%s\n", nombre);
+
     for(i=0;i<(*tope);i++){
-            //printf("\n%d : %d",i, vector[i]);
-       fwrite(&vector[i],sizeof(byte),1,archivo);
+       fwrite(&memoria[i],sizeof(byte),1,archivo);
     }
 
-    printf("despues del for\n");
     fclose(archivo);
 }
 
@@ -2870,19 +2876,19 @@ void cargarPopEax(byte memoria[], int *tope){
     if(memoria[(*tope)-1]==0x50){
         (*tope)=(*tope)-1;
     }else{
-        cargarPopEax(memoria,tope);
+        cargarByte(0x58, memoria, tope);
     }
 }
 
 void cargarInt(int n,byte memoria[], int *tope){
 
-  unsigned int k ; // -1 en 4 bytes (FF FF FF FF)
+  unsigned int k = 4294967295; // -1 en 4 bytes (FF FF FF FF)
   unsigned int d;
 
   if (n < 0) {
-    k =  4294967295U+ n + 1;
+    d = k + n + 1;
   } else {
-    k = (unsigned int) n;
+    d = (unsigned int) n;
   }
 
   // Como la PC es little endian, se insertan al reves, de a pares
@@ -2893,17 +2899,19 @@ void cargarInt(int n,byte memoria[], int *tope){
 }
 
 void cargarIntEn (int n, byte memoria [], int dirMem){
+    unsigned int k = 4294967295; // -1 en 4 bytes (FF FF FF FF)
     unsigned int num;
-    if (n<0){
-        num=4294967295U+n+1;
+
+    if (n < 0) {
+        num = k + n + 1;
+    } else {
+        num = (unsigned int) n;
     }
-    else{
-        num=n;
-    }
-        memoria[(dirMem++)]=num%256;//printf("\n %d \t",memoria[*topememoria]);
-        memoria[(dirMem++)]=(num/256)%256;//printf(" %d \t",memoria[*topememoria]);
-        memoria[(dirMem++)]=(num/256/256)%256;//printf(" %d \t",memoria[*topememoria]);
-        memoria[(dirMem++)]=(num/256/256/256);//printf(" %d \t",memoria[*topememoria]);
+
+    memoria[(dirMem)]=num%256;//printf("\n %d \t",memoria[*topememoria]);
+    memoria[(dirMem + 1)]=(num/256)%256;//printf(" %d \t",memoria[*topememoria]);
+    memoria[(dirMem + 2)]=(num/256/256)%256;//printf(" %d \t",memoria[*topememoria]);
+    memoria[(dirMem + 3)]=(num/256/256/256);//printf(" %d \t",memoria[*topememoria]);
 }
 
 int leerIntDe (int n,byte memoria[]){
