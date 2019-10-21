@@ -12,11 +12,12 @@
 #define SALTO_LINEA 0x410
 #define IMPRIMIR_EAX 0x420
 #define LEER_EAX 0x590
+#define COMIENZO_TEXT 0x200
 
 /*** NUEVOS TIPOS ***/
 
 typedef enum {NULO, FIN_DE_ARCHIVO, BEGIN, END, ABREPAREN, CIERRAPAREN, READLN, WRITE, WRITELN, VAR, CADENA, IDENT, NUMERO, PUNTO, COMA, PTOCOMA, MAS,
-               CONST, IGUAL,MAYOR, MENOR, PROCEDURE, ASIGNAR, CALL, IF, THEN, WHILE, DO, ODD, DISTINTO, MENORIGUAL, MAYORIGUAL,MENOS, MULTIPLICAR, DIVIDIR } tTerminal;
+               CONST, IGUAL,MAYOR, MENOR, PROCEDURE, ASIGNAR, CALL, IF, THEN, ELSE, WHILE, DO, ODD, DISTINTO, MENORIGUAL, MAYORIGUAL,MENOS, MULTIPLICAR, DIVIDIR, HALT } tTerminal;
 
 
 typedef struct {
@@ -74,7 +75,7 @@ void escribirCadena(tSimbolo s, byte memoria[], int *tope);
 
 tSimbolo programa(tSimbolo, FILE*, byte memoria[], int *tope);
 tSimbolo bloque(tSimbolo, FILE*, tablaDeIdent, int, byte memoria[], int *tope, int *contadorVariables);
-tSimbolo proposicion(tSimbolo, FILE*, tablaDeIdent,int base, int,byte memoria[],int *tope);
+tSimbolo proposicion(tSimbolo, FILE*, tablaDeIdent,int base, int,byte memoria[],int *tope, int *contadorVariables);
 tSimbolo condicion(tSimbolo, FILE*, tablaDeIdent,int base, int, byte memoria[], int *tope);
 tSimbolo expresion(tSimbolo, FILE*, tablaDeIdent,int base, int, byte memoria[], int *tope);
 tSimbolo termino(tSimbolo, FILE*, tablaDeIdent,int base, int, byte memoria[], int *tope);
@@ -160,29 +161,30 @@ tSimbolo programa (tSimbolo s, FILE *archivo, byte memoria[], int *tope){
 }
 
 void seccionFinal(int contadorVariables, byte memoria[], int *tope){
-    int distancia = 0x588-(*tope+5);
-    cargarByte(0xE9,memoria,tope);
-    cargarInt(distancia,memoria,tope);
+    int distancia = 0x588 - (*tope + 5); // Calcula la distancia hasta la instrucción de finalización de programa (0x588 para windows)
+    cargarByte(0xE9, memoria, tope);
+    cargarInt(distancia, memoria, tope);
 
-    cargarIntEn(leerIntDe(212, memoria)+leerIntDe(200, memoria)+(*tope-0x200),memoria,0x701);//212 es el tamaño del header, 204 el tamaño de algo.
-                                                                                        //se carga en la posición 1793 el tamaño del text
-    int i;
-    for(i = 0; i<contadorVariables / 4; i++){
+    // Pag. 31 Windows, parrafo 3
+    // se carga en la posicion 0x700 el size de la parte text, 0x700 es la posicion donde termina la parte de long. El código empieaza en 0x701
+    cargarIntEn(leerIntDe(212, memoria) + leerIntDe(200, memoria) + (*tope - COMIENZO_TEXT), memoria, 0x701);//212 es image base, 200 es base of code
+
+    for(int i = 0; i<contadorVariables / 4; i++){
         cargarInt(0,memoria,tope);//Carga 1 cero por cada variable (4 bytes, ints de 32 bits)
     }
 
-    cargarIntEn((*tope)-0x200, memoria, 416);
+    cargarIntEn((*tope)- COMIENZO_TEXT, memoria, 416);
     //en 416 poner tope - 0x200
     //en 419 poner tope - 0x200
 
-    int tamano = leerIntDe(220,memoria);
+    int tamano = leerIntDe(220, memoria);
 
     while ((*tope) % tamano != 0){ //se llena el archivo para que sea multiplo de 512 bytes
         cargarByte(0x00,memoria,tope);
     }
 
-    cargarIntEn((*tope)-0x200, memoria, 188);
-    cargarIntEn((*tope)-0x200, memoria, 424);
+    cargarIntEn((*tope)-COMIENZO_TEXT, memoria, 188);
+    cargarIntEn((*tope)-COMIENZO_TEXT, memoria, 424);
 
     int tamanoCodigo = leerIntDe(188, memoria);
     int tamanoData = leerIntDe(424, memoria);
@@ -283,7 +285,7 @@ tSimbolo bloque (tSimbolo s, FILE *archivo, tablaDeIdent tabla, int base, byte m
         if(s.simbolo==PTOCOMA)s=aLex(archivo);
         else error(5,s.cadena);
 
-        s = bloque(s, archivo, tabla, base+desplazamiento, memoria, tope, contadorVariables); //por que ingresa de nuevo?
+        s = bloque(s, archivo, tabla, base+desplazamiento, memoria, tope, contadorVariables);
         cargarByte(0xC3, memoria, tope);
 
         if(s.simbolo==PTOCOMA)s=aLex(archivo);
@@ -298,11 +300,11 @@ tSimbolo bloque (tSimbolo s, FILE *archivo, tablaDeIdent tabla, int base, byte m
         (*tope) -= 5;
     }
 
-    s = proposicion(s,archivo,tabla,base, (base + desplazamiento - 1), memoria, tope);
+    s = proposicion(s,archivo,tabla,base, (base + desplazamiento - 1), memoria, tope, contadorVariables);
 
     return s;
 }
-tSimbolo proposicion (tSimbolo s, FILE *archivo, tablaDeIdent tabla,int base, int posUltimoIdent,byte memoria[],int *tope){
+tSimbolo proposicion(tSimbolo s, FILE *archivo, tablaDeIdent tabla,int base, int posUltimoIdent,byte memoria[],int *tope, int *contadorVariables){
     int p, posPrevCond, posPostCond, origSalto, destSalto, dist;
 
     switch(s.simbolo){
@@ -342,25 +344,39 @@ tSimbolo proposicion (tSimbolo s, FILE *archivo, tablaDeIdent tabla,int base, in
 
     case BEGIN:
         s=aLex(archivo);
-        s = proposicion(s,archivo,tabla,base ,posUltimoIdent,memoria, tope);
+        s = proposicion(s,archivo,tabla,base ,posUltimoIdent,memoria, tope, contadorVariables);
         while(s.simbolo==PTOCOMA){
             s=aLex(archivo);
-            s = proposicion(s,archivo,tabla,base,posUltimoIdent,memoria, tope);
+            s = proposicion(s,archivo,tabla,base,posUltimoIdent,memoria, tope, contadorVariables);
         }
         if(s.simbolo==END)s=aLex(archivo);
         else error(7, s.cadena);
         break;
 
     case IF:
-        s=aLex(archivo);
+        s = aLex(archivo);
         s = condicion(s, archivo, tabla, base, posUltimoIdent, memoria, tope);
 
-        int origenSalto=*tope;
+        int origenSalto = *tope;
         if(s.simbolo == THEN) s = aLex(archivo);
         else error(8, s.cadena);
 
-        s = proposicion(s,archivo,tabla,base,posUltimoIdent,memoria, tope);
-        cargarIntEn(((*tope) - origenSalto), memoria, (origenSalto-4));//cargamos la distancia en la posiciòn que sigue a e9
+        s = proposicion(s,archivo,tabla,base,posUltimoIdent,memoria, tope, contadorVariables);
+        cargarIntEn(((*tope) - origenSalto), memoria, (origenSalto - 4));//cargamos la distancia en la posiciòn que sigue a e9
+
+        if(s.simbolo == ELSE){
+
+            cargarIntEn(((*tope) - origenSalto) + 5, memoria, origenSalto - 4); //Agregamos 5 a la distancia ya que aquí pondremos el salto incondicional del else
+
+            int origenSaltoElse = (*tope); //Salto incondicional con la distancia del else
+            cargarByte(0xE9, memoria, tope); //Este salto se va a ejecutar secuencialmente después de la proposición del IF
+            cargarInt(0, memoria, tope);
+
+            s = aLex(archivo);
+            s = proposicion(s,archivo,tabla,base,posUltimoIdent,memoria, tope, contadorVariables);
+
+            cargarIntEn((*tope) - origenSaltoElse, memoria, origenSaltoElse - 4); //Correjimos la el salto del else
+        }
 
         break;
 
@@ -377,7 +393,7 @@ tSimbolo proposicion (tSimbolo s, FILE *archivo, tablaDeIdent tabla,int base, in
         if(s.simbolo == DO) s = aLex(archivo);
         else error(9, s.cadena);
 
-        s = proposicion(s,archivo,tabla,base,posUltimoIdent,memoria, tope);
+        s = proposicion(s,archivo,tabla,base,posUltimoIdent,memoria, tope, contadorVariables);
         destSalto = (*tope);
 
         dist = posPrevCond - ((*tope) + 5);
@@ -471,6 +487,11 @@ tSimbolo proposicion (tSimbolo s, FILE *archivo, tablaDeIdent tabla,int base, in
         cargarInt((SALTO_LINEA - ((*tope) + 4)), memoria, tope);    // Salto de linea
 
         if (s.simbolo != CIERRAPAREN) error(11, s.cadena);
+        s = aLex(archivo);
+        break;
+
+    case HALT:
+        seccionFinal(*contadorVariables, memoria, tope);
         s = aLex(archivo);
         break;
    }
@@ -742,9 +763,11 @@ tSimbolo aLex(FILE* fp) {
             else if (strcmp(cadenaAux, "CALL") == 0) a.simbolo = CALL;
             else if (strcmp(cadenaAux, "IF") == 0) a.simbolo = IF;
             else if (strcmp(cadenaAux, "THEN") == 0) a.simbolo = THEN;
+            else if (strcmp(cadenaAux, "ELSE") == 0) a.simbolo = ELSE;
             else if (strcmp(cadenaAux, "WHILE") == 0) a.simbolo = WHILE;
             else if (strcmp(cadenaAux, "DO") == 0) a.simbolo = DO;
             else if (strcmp(cadenaAux, "ODD") == 0) a.simbolo = ODD;
+            else if (strcmp(cadenaAux, "HALT") == 0) a.simbolo = HALT;
             else a.simbolo = IDENT;
 
         } else if (isdigit(c)) {
@@ -887,6 +910,8 @@ void imprimir(tSimbolo simb) {
             break;
         case THEN: printf("THEN");
             break;
+        case ELSE: printf("ELSE");
+            break;
         case WHILE: printf("WHILE");
             break;
         case DO: printf("DO");
@@ -904,6 +929,8 @@ void imprimir(tSimbolo simb) {
         case MULTIPLICAR: printf("MULTIPLICAR");
             break;
         case DIVIDIR: printf("DIVIDIR");
+            break;
+        case HALT: printf("HALT");
             break;
     }
     printf ("\n");
