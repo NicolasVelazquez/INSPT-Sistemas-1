@@ -9,6 +9,10 @@
 #define MAX_CANT_IDENT 1024
 #define TOPE_DE_BYTES 8000  /* es a longitud neta, sin los apóstrofos ni el cero final */
 
+#define SALTO_LINEA 0x410
+#define IMPRIMIR_EAX 0x420
+#define LEER_EAX 0x590
+
 /*** NUEVOS TIPOS ***/
 
 typedef enum {NULO, FIN_DE_ARCHIVO, BEGIN, END, ABREPAREN, CIERRAPAREN, READLN, WRITE, WRITELN, VAR, CADENA, IDENT, NUMERO, PUNTO, COMA, PTOCOMA, MAS,
@@ -61,6 +65,10 @@ void cargarIntEn(int n, byte memoria [], int dirMem);
 void cargarPopEax(byte memoria[], int *tope);
 
 int leerIntDe(int n, byte memoria[]);
+
+void seccionFinal(int contadorVariables, byte memoria[], int *tope);
+
+void escribirCadena(tSimbolo s, byte memoria[], int *tope);
 
 /*** ANALIZADOR SINTACTICO ***/
 
@@ -144,39 +152,43 @@ tSimbolo programa (tSimbolo s, FILE *archivo, byte memoria[], int *tope){
 
     if(s.simbolo==PUNTO){
         s=aLex(archivo);
-        int distancia = 0x588-(*tope+5);
-        cargarByte(0xE9,memoria,tope);
-        cargarInt(distancia,memoria,tope);
-
-        cargarIntEn(leerIntDe(212, memoria)+leerIntDe(200, memoria)+(*tope-0x200),memoria,0x701);//212 es el tamaño del header, 204 el tamaño de algo.
-                                                                                            //se carga en la posición 1793 el tamaño del text
-        int i;
-        for(i = 0; i<contadorVariables / 4; i++){
-            cargarInt(0,memoria,tope);//Carga 1 cero por cada variable (4 bytes, ints de 32 bits)
-        }
-
-        cargarIntEn((*tope)-0x200, memoria, 416);
-        //en 416 poner tope - 0x200
-        //en 419 poner tope - 0x200
-
-        int tamano = leerIntDe(220,memoria);
-
-        while ((*tope) % tamano != 0){ //se llena el archivo para que sea multiplo de 512 bytes
-            cargarByte(0x00,memoria,tope);
-        }
-
-        cargarIntEn((*tope)-0x200, memoria, 188);
-        cargarIntEn((*tope)-0x200, memoria, 424);
-
-        int tamanoCodigo = leerIntDe(188, memoria);
-        int tamanoData = leerIntDe(424, memoria);
-        int seccion = leerIntDe(216, memoria);
-        cargarIntEn((2 + tamanoCodigo / seccion) * seccion, memoria, 240);
-        cargarIntEn((2 + tamanoData / seccion) * seccion, memoria, 208);
+        seccionFinal(contadorVariables, memoria, tope);
 
     } else error(0,s.cadena);
 
     return s;
+}
+
+void seccionFinal(int contadorVariables, byte memoria[], int *tope){
+    int distancia = 0x588-(*tope+5);
+    cargarByte(0xE9,memoria,tope);
+    cargarInt(distancia,memoria,tope);
+
+    cargarIntEn(leerIntDe(212, memoria)+leerIntDe(200, memoria)+(*tope-0x200),memoria,0x701);//212 es el tamaño del header, 204 el tamaño de algo.
+                                                                                        //se carga en la posición 1793 el tamaño del text
+    int i;
+    for(i = 0; i<contadorVariables / 4; i++){
+        cargarInt(0,memoria,tope);//Carga 1 cero por cada variable (4 bytes, ints de 32 bits)
+    }
+
+    cargarIntEn((*tope)-0x200, memoria, 416);
+    //en 416 poner tope - 0x200
+    //en 419 poner tope - 0x200
+
+    int tamano = leerIntDe(220,memoria);
+
+    while ((*tope) % tamano != 0){ //se llena el archivo para que sea multiplo de 512 bytes
+        cargarByte(0x00,memoria,tope);
+    }
+
+    cargarIntEn((*tope)-0x200, memoria, 188);
+    cargarIntEn((*tope)-0x200, memoria, 424);
+
+    int tamanoCodigo = leerIntDe(188, memoria);
+    int tamanoData = leerIntDe(424, memoria);
+    int seccion = leerIntDe(216, memoria);
+    cargarIntEn((2 + tamanoCodigo / seccion) * seccion, memoria, 240);
+    cargarIntEn((2 + tamanoData / seccion) * seccion, memoria, 208);
 }
 
 
@@ -188,33 +200,12 @@ tSimbolo bloque (tSimbolo s, FILE *archivo, tablaDeIdent tabla, int base, byte m
 
     int inicio = *tope;
 
-    if(s.simbolo==CONST){
-        int p;
-        s=aLex(archivo);
-        if(s.simbolo==IDENT){
-            p = buscarIdent(s.cadena, tabla, base, base+desplazamiento-1);
-            if(p == -1){
-                uppercase(s.cadena);
-                strcpy(tabla[base+desplazamiento].nombre, s.cadena);
-                tabla[base+desplazamiento].tipo = CONST;
-            } else{
-                error(13 , s.cadena);
-            }
-            s=aLex(archivo);
-        }
-        else{
-            error(2,s.cadena);
-        }
-        if(s.simbolo==IGUAL) s=aLex(archivo);
-        else error(3,s.cadena);
-        if(s.simbolo==NUMERO){
-                tabla[base+desplazamiento].valor=atoi(s.cadena);
-                s=aLex(archivo);
-                desplazamiento++;
-        }else error(4,s.cadena);
-        while(s.simbolo==COMA){
-            s=aLex(archivo);
-            if(s.simbolo==IDENT){
+    if(s.simbolo == CONST){
+        do {
+            int p;
+            s = aLex(archivo);
+
+            if(s.simbolo == IDENT){
                 p = buscarIdent(s.cadena, tabla, base, base+desplazamiento-1);
 
                 if(p == -1){
@@ -224,62 +215,51 @@ tSimbolo bloque (tSimbolo s, FILE *archivo, tablaDeIdent tabla, int base, byte m
                 } else{
                     error(13 , s.cadena);
                 }
-                s=aLex(archivo);
-            }
-            else{
+                s = aLex(archivo);
+            }else{
                 error(2,s.cadena);
             }
-            if(s.simbolo==IGUAL) s=aLex(archivo);
+
+            if(s.simbolo == IGUAL) s = aLex(archivo);
             else error(3,s.cadena);
-            if(s.simbolo==NUMERO){
-                    tabla[base+desplazamiento].valor=atoi(s.cadena);
-                    s=aLex(archivo);
-                    desplazamiento++;
+
+            if(s.simbolo == NUMERO){
+                tabla[base+desplazamiento].valor=atoi(s.cadena);
+                s=aLex(archivo);
+                desplazamiento++;
             }else error(4,s.cadena);
-        }
+
+        } while(s.simbolo == COMA);
+
         if(s.simbolo==PTOCOMA)s=aLex(archivo);
         else error (5,s.cadena);
-
     }
+
     if(s.simbolo==VAR){
-        int p;
-        s=aLex(archivo);
-        if(s.simbolo==IDENT){
-            p = buscarIdent(s.cadena, tabla, base, (base+desplazamiento-1));
-            if(p == -1){
-                tabla[base+desplazamiento].tipo = VAR;
-                uppercase(s.cadena);
-                strcpy(tabla[base+desplazamiento].nombre, s.cadena);
-                printf("**********%s\n",tabla[base+desplazamiento].nombre);
-                tabla[base + desplazamiento].valor = (*contadorVariables)+1;
-                p = buscarIdent(s.cadena, tabla, base, (base+desplazamiento));
-                printf("********%d",p);
-                (*contadorVariables)++;
-                desplazamiento++;
-                printf("Chau carlo\n");
-            } else{
-                error(13 , s.cadena);
-            }
-            s=aLex(archivo);
-        } else error(2,s.cadena);
-        while(s.simbolo==COMA){
+        do {
+            int p;
             s=aLex(archivo);
             if(s.simbolo==IDENT){
-            p = buscarIdent(s.cadena, tabla, base, (base+desplazamiento-1));
-            if(p == -1){
-                tabla[base+desplazamiento].tipo = VAR;
-                uppercase(s.cadena);
-                strcpy(tabla[base+desplazamiento].nombre, s.cadena);
-                tabla[base + desplazamiento].valor = (*contadorVariables)+1;
-                (*contadorVariables)++;
-                desplazamiento++;
-                printf("Chau carlo\n");
-            } else{
-                error(13 , s.cadena);
-            }
-            s=aLex(archivo);
-        } else error(2,s.cadena);
-        }
+                p = buscarIdent(s.cadena, tabla, base, (base+desplazamiento-1));
+
+                if(p == -1){
+                    tabla[base+desplazamiento].tipo = VAR;
+                    uppercase(s.cadena);
+                    strcpy(tabla[base + desplazamiento].nombre, s.cadena);
+                    tabla[base + desplazamiento].valor = (*contadorVariables);
+    //                p = buscarIdent(s.cadena, tabla, base, (base+desplazamiento));
+                    (*contadorVariables) += 4;
+                    desplazamiento++;
+
+                } else {
+                    error(13 , s.cadena);
+                }
+                s=aLex(archivo);
+
+            } else error(2,s.cadena);
+
+        } while (s.simbolo == COMA);
+
         if(s.simbolo==PTOCOMA)s=aLex(archivo);
         else error(5,s.cadena);
     }
@@ -292,7 +272,7 @@ tSimbolo bloque (tSimbolo s, FILE *archivo, tablaDeIdent tabla, int base, byte m
                 uppercase(s.cadena);
                 strcpy(tabla[base+desplazamiento].nombre, s.cadena);
                 tabla[base+desplazamiento].tipo = PROCEDURE;
-                tabla[base + desplazamiento].valor = *tope;
+                tabla[base + desplazamiento].valor = (*tope);
                 desplazamiento++;
             } else{
                 error(13 , s.cadena);
@@ -303,22 +283,22 @@ tSimbolo bloque (tSimbolo s, FILE *archivo, tablaDeIdent tabla, int base, byte m
         if(s.simbolo==PTOCOMA)s=aLex(archivo);
         else error(5,s.cadena);
 
-        s = bloque(s,archivo,tabla, base+desplazamiento, memoria, tope,contadorVariables); //por que ingresa de nuevo?
+        s = bloque(s, archivo, tabla, base+desplazamiento, memoria, tope, contadorVariables); //por que ingresa de nuevo?
         cargarByte(0xC3, memoria, tope);
 
         if(s.simbolo==PTOCOMA)s=aLex(archivo);
         else error(5,s.cadena);
-    }//aaaa
+    }
 
     int distancia = (*tope) - inicio;
 
-    if(distancia == 0){
-        (*tope) -= 5;
-    } else {
+    if (distancia > 0) {
         cargarIntEn(distancia, memoria, (inicio-4));
+    } else {
+        (*tope) -= 5;
     }
 
-    s = proposicion(s,archivo,tabla,base, base+desplazamiento-1,memoria,tope);
+    s = proposicion(s,archivo,tabla,base, (base + desplazamiento - 1), memoria, tope);
 
     return s;
 }
@@ -331,30 +311,35 @@ tSimbolo proposicion (tSimbolo s, FILE *archivo, tablaDeIdent tabla,int base, in
 
         if (p == -1) error(15, s.cadena);                                    // Identificador no encontrado
         if (tabla[p].tipo != VAR) error(17, s.cadena);
+
         s=aLex(archivo);
-        if(s.simbolo==ASIGNAR)s=aLex(archivo);
+        if(s.simbolo == ASIGNAR) s = aLex(archivo);
         else error(6,s.cadena);                                             // Error sintactico, se esperaba asignacion
 
         s = expresion(s,archivo,tabla,base,posUltimoIdent, memoria, tope);
+
         cargarPopEax(memoria,tope);                                        //  POP EAX
         cargarByte(0x89,memoria,tope);                                    //  MOV [EDI + ....], EAX
         cargarByte(0x87,memoria,tope);                                    //  ....
         cargarInt(tabla[p].valor,memoria,tope);                           //  Offset de memoria respecto de EDI
 
         break;
+
     case CALL:
         s=aLex(archivo);
         if(s.simbolo==IDENT){
+            p = buscarIdent(s.cadena, tabla, 0, posUltimoIdent);
+            if (p == -1) error(15, s.cadena);                                    // Identificador no encontrado
+            if (tabla[p].tipo != PROCEDURE) error(16, s.cadena);                 // Error semantico, se esperaba un PROCEDURE
 
-         p = buscarIdent(s.cadena, tabla, 0, posUltimoIdent);
-         if (p == -1) error(15, s.cadena);                                    // Identificador no encontrado
-         if (tabla[p].tipo != PROCEDURE) error(16, s.cadena);                 // Error semantico, se esperaba un PROCEDURE
+            cargarByte(0xE8,memoria,tope);                                        // CALL dir
+            cargarInt(tabla[p].valor - ((*tope) + 4), memoria, tope);  // Salto hacia atras (inicio del procedure)
 
-        cargarByte(0xE8,memoria,tope);                                        // CALL dir
-        cargarInt(tabla[p].valor - ((*tope) + 4),memoria,tope);  // Salto hacia atras (inicio del procedure)
-        }else error(2,s.cadena);
+        } else error(2, s.cadena);
+
         s=aLex(archivo);
         break;
+
     case BEGIN:
         s=aLex(archivo);
         s = proposicion(s,archivo,tabla,base ,posUltimoIdent,memoria, tope);
@@ -365,210 +350,137 @@ tSimbolo proposicion (tSimbolo s, FILE *archivo, tablaDeIdent tabla,int base, in
         if(s.simbolo==END)s=aLex(archivo);
         else error(7, s.cadena);
         break;
+
     case IF:
         s=aLex(archivo);
-        s = condicion(s,archivo,tabla,base,posUltimoIdent,memoria, tope);
-        //origen salto
+        s = condicion(s, archivo, tabla, base, posUltimoIdent, memoria, tope);
+
         int origenSalto=*tope;
-        if(s.simbolo==THEN)s=aLex(archivo);
-        else error(8,s.cadena);
+        if(s.simbolo == THEN) s = aLex(archivo);
+        else error(8, s.cadena);
+
         s = proposicion(s,archivo,tabla,base,posUltimoIdent,memoria, tope);
-        cargarIntEn((*tope)-origenSalto,memoria,origenSalto-4);//cargamos la distancia en la posiciòn que sigue a e9
+        cargarIntEn(((*tope) - origenSalto), memoria, (origenSalto-4));//cargamos la distancia en la posiciòn que sigue a e9
+
         break;
+
     case WHILE:
-        s=aLex(archivo);
-        cargarByte(0xE9,memoria,tope);
-        int origen=origen-(*tope+5);
-        cargarInt(origen,memoria,tope);
+        s = aLex(archivo);
+
+//        cargarByte(0xE9, memoria, tope);
+        posPrevCond = (*tope);
+//        cargarInt(origen,memoria,tope);
+
         s = condicion(s,archivo,tabla,base,posUltimoIdent, memoria, tope);
-        int desde=(*tope);
-        if(s.simbolo==DO)s=aLex(archivo);
-        else error(9,s.cadena);
+        posPostCond = (*tope);
+
+        if(s.simbolo == DO) s = aLex(archivo);
+        else error(9, s.cadena);
+
         s = proposicion(s,archivo,tabla,base,posUltimoIdent,memoria, tope);
-        cargarByte(0xE9,memoria,tope);
-        int d=0;
-        d=origen-(*tope)+4;
-        cargarInt(d,memoria,tope);
-        cargarIntEn(desde-4,memoria,(*tope)-desde);
+        destSalto = (*tope);
+
+        dist = posPrevCond - ((*tope) + 5);
+        cargarByte(0xE9, memoria, tope);
+
+        cargarInt(dist, memoria, tope);
+        cargarIntEn(((*tope)- posPostCond), memoria, posPostCond - 4);
+
         break;
+
     case READLN:
+        s = aLex(archivo);
+        if (s.simbolo != ABREPAREN) error(10, s.cadena);
 
-        s=aLex(archivo);
-        if(s.simbolo==ABREPAREN)s=aLex(archivo);
-        else error(10,s.cadena);
-        if(s.simbolo==IDENT){
-            int p;
-            s=aLex(archivo);
-            p = buscarIdent(s.cadena, tabla, 0, posUltimoIdent);
-            printf("%d",p);
-            if(p == -1){
+        do {
+            s = aLex(archivo);
+            if(s.simbolo == IDENT){
+//                s = aLex(archivo);
+                int p = buscarIdent(s.cadena, tabla, 0, posUltimoIdent);
+                if (p == -1) error(15, s.cadena);                    // No se encontro el IDENT en la tabla
+                if (tabla[p].tipo != VAR) error(14, s.cadena);
 
-                int distancia = 0x590-(*tope+5);// call
+                s = aLex(archivo);
                 cargarByte(0xE8, memoria, tope);
-                cargarInt(distancia,memoria,tope);
+
+                int distancia = LEER_EAX - ((*tope) + 4);// call
+                cargarInt(distancia, memoria, tope);
 
                 cargarByte(0x89, memoria, tope); // MOV [EDI + ....], EAX
                 cargarByte(0x87, memoria, tope);
 
                 cargarInt(tabla[p].valor, memoria, tope); // MOV [EDI + ....], EAX
-            } else{
-                printf("Ingreso hasta el ident");
-                error(13 , s.cadena);
-            }
-        }
-        else error(2,s.cadena);
-        while(s.simbolo==COMA){
-            s=aLex(archivo);
-            if(s.simbolo==IDENT){
-                int p;
-                s=aLex(archivo);
-                p = buscarIdent(s.cadena, tabla, 0, posUltimoIdent);
 
-                if(p == -1){
+            } else error(2, s.cadena);
 
+        }while(s.simbolo == COMA);
 
-                    int distancia = 0x590-(*tope+5); //call
-                    cargarByte(0xE8, memoria, tope);
-                    cargarInt(distancia,memoria,tope);
-
-                    cargarByte(0x89, memoria, tope);  // MOV [EDI + ....], EAX
-                    cargarByte(0x87, memoria, tope);
-
-                    cargarInt(tabla[p].valor, memoria, tope);  // MOV [EDI + ....], EAX
-                } else{
-                    printf("Ingreso hasta el coma y luego indent");
-                    error(13 , s.cadena);
-                }
-            } else {
-                error(2,s.cadena);
-            }
-        }
-        if(s.simbolo==CIERRAPAREN)s=aLex(archivo);
-        else error (11,s.cadena);
+        if(s.simbolo == CIERRAPAREN) s = aLex(archivo);
+        else error (11, s.cadena);
         break;
+
     case WRITE:
-        s=aLex(archivo);
-        if(s.simbolo==ABREPAREN)s=aLex(archivo);
-        else error(10, s.cadena);
-        if(s.simbolo==CADENA){
-            cargarByte(0xB8,memoria,tope);
-            cargarInt(leerIntDe(212, memoria)+leerIntDe(204, memoria)+(*tope-0x200)+15,memoria,tope); //MOV EAX
-            int distancia = 0x590-(*tope+5);// call
-            cargarByte(0xE8, memoria, tope); // call
-            cargarInt(distancia,memoria,tope);// call
-            cargarByte(0xE9,memoria,tope); //JMP
-            cargarInt(strlen(s.cadena)-1,memoria,tope); //JMP
-            int i;
-            for(i=1;i<strlen(s.cadena)-1;i++){
-                cargarByte(s.cadena[i],memoria,tope);// carga de la cadena en memoria
+        s = aLex(archivo);
+
+        if (s.simbolo != ABREPAREN) error(10, s.cadena);
+
+        do {
+            s = aLex(archivo);
+            if (s.simbolo == CADENA) {
+                escribirCadena(s, memoria, tope);
+                s = aLex(archivo);
+            } else {
+                s = expresion(s, archivo, tabla, base, posUltimoIdent, memoria, tope);
+                // Genera código para escribir un número por pantalla
+                cargarPopEax(memoria, tope);
+                cargarByte(0xE8, memoria, tope);
+                cargarInt((IMPRIMIR_EAX - ((*tope) + 4)), memoria, tope);
             }
-            cargarByte(0,memoria,tope); //el barra cero al final de la cadena
+        } while (s.simbolo == COMA);
 
-            s=aLex(archivo);
-        }
-        else s = expresion(s,archivo,tabla,base,posUltimoIdent,memoria , tope);
-        while(s.simbolo==COMA){
-            s=aLex(archivo);
-            if(s.simbolo==CADENA){
-                cargarByte(0xB8,memoria,tope);
-                cargarInt(leerIntDe(212, memoria)+leerIntDe(204, memoria)+(*tope-0x200)+15,memoria,tope); //MOV EAX
-                int distancia = 0x590-(*tope+5);// call
-                cargarByte(0xE8, memoria, tope); // call
-                cargarInt(distancia,memoria,tope);// call
-                cargarByte(0xE9,memoria,tope); //JMP
-                cargarInt(strlen(s.cadena)-1,memoria,tope); //JMP
-                int i;
-                for(i=1;i<strlen(s.cadena)-1;i++){
-                    cargarByte(s.cadena[i],memoria,tope);// carga de la cadena en memoria
-                }
-                cargarByte(0,memoria,tope); //el barra cero al final de la cadena
+        if (s.simbolo != CIERRAPAREN) error(11, s.cadena);                   // Se esperaba CIERRAPAREN
+        s = aLex(archivo);
 
-                s=aLex(archivo);
-            }else s = expresion(s,archivo,tabla,base,posUltimoIdent,memoria , tope);
-        }
-        if(s.simbolo==CIERRAPAREN)s=aLex(archivo);
-        else error(11,s.cadena);
         break;
+
     case WRITELN:
-        printf("Ingreso al writeln\n");
-        s=aLex(archivo);
-        if(s.simbolo==ABREPAREN){
-            s=aLex(archivo);
-            printf("Ingreso al if de abreparen\n");
-            if(s.simbolo==CADENA){
-                printf("Ingreso al if de cadena\n");
-                cargarByte(0xB8,memoria,tope);
-                cargarInt(leerIntDe(212, memoria)+leerIntDe(204, memoria)+(*tope-0x200)+15,memoria,tope); //MOV EAX
-                int distancia = 0x590-(*tope+5);// call
-                cargarByte(0xE8, memoria, tope); // call
-                cargarInt(distancia,memoria,tope);// call
-                cargarByte(0xE9,memoria,tope); //JMP
-                cargarInt(strlen(s.cadena)-1,memoria,tope); //JMP
-                int i;
-                for(i=1;i<strlen(s.cadena)-1;i++){
-                    printf("Ingresa al for a cargar byte\n");
-                    cargarByte(s.cadena[i],memoria,tope);// carga de la cadena en memoria
-                }
-                cargarByte(0,memoria,tope); //el barra cero al final de la cadena
+        s = aLex(archivo);
 
-                s=aLex(archivo);
-            }
-
-            else{ s = expresion(s,archivo,tabla,base,posUltimoIdent, memoria, tope);
-            printf("lee expresion\n");
-            cargarPopEax(memoria,tope); // pop Eax
-            printf("cargo porEax\n");
-            int distancia = 0x420-(*tope+5); //call
-            cargarByte(0xE8, memoria, tope);
-            cargarInt(distancia,memoria,tope);
-        }
-            while(s.simbolo==COMA){
-                s=aLex(archivo);
-                if(s.simbolo==CADENA){
-                    printf("Entro al if porque es cadena\n");
-                    cargarByte(0xB8,memoria,tope);
-                    cargarInt(leerIntDe(212, memoria)+leerIntDe(204, memoria)+(*tope-0x200)+15,memoria,tope); //MOV EAX
-                    int distancia = 0x590-(*tope+5);// call
-                    cargarByte(0xE8, memoria, tope); // call
-                    cargarInt(distancia,memoria,tope);// call
-                    cargarByte(0xE9,memoria,tope); //JMP
-                    cargarInt(strlen(s.cadena)-1,memoria,tope); //JMP
-                    int i;
-                    for(i=1;i<strlen(s.cadena)-1;i++){
-                        cargarByte(s.cadena[i],memoria,tope);// carga de la cadena en memoria
-                    }
-                    cargarByte(0,memoria,tope); //el barra cero al final de la cadena
-
-                    s=aLex(archivo);
-                }else {
-                    s = expresion(s,archivo,tabla,base,posUltimoIdent, memoria, tope);
-                    cargarPopEax(memoria,tope); // pop Eax
-                    int distancia = 0x420-(*tope+5); //call
-                    cargarByte(0xE8, memoria, tope);
-                    cargarInt(distancia,memoria,tope);
-                }
-
-            }
-
-            printf("llego hasta antes del cerrar parentesis\n");
-            if(s.simbolo==CIERRAPAREN)s=aLex(archivo);
-            else error(11,s.cadena);
+        if (s.simbolo == PTOCOMA || s.simbolo != ABREPAREN) {         // Si se lo invoca sin parametros, es un salto de linea nomas
+            cargarByte(0xE8, memoria, tope);                                  // CALL
+            cargarInt((SALTO_LINEA - ((*tope) + 4)), memoria, tope);  // Salto de linea
+            return s;
         }
 
-            printf("Intenta hacer el call\n");
-            int distancia = 0x410-(*tope+5); //call  salto de línea
-            cargarByte(0xE8, memoria, tope);
-            cargarInt(distancia,memoria,tope);
+        do {
+            s = aLex(archivo);
+            if (s.simbolo == CADENA) {
+                escribirCadena(s, memoria, tope);
+                s = aLex(archivo);
+            } else {
+                s = expresion(s,archivo,tabla,base,posUltimoIdent, memoria, tope);
+                // Genera código para escribir un número por pantalla
+                cargarPopEax(memoria, tope);
+                cargarByte(0xE8, memoria, tope);
+                cargarInt((IMPRIMIR_EAX - ((*tope) + 4)), memoria, tope);
+            }
+        } while (s.simbolo == COMA);
 
+        // Finaliza enviando un salto de linea
+        cargarByte(0xE8, memoria, tope);                                    // CALL
+        cargarInt((SALTO_LINEA - ((*tope) + 4)), memoria, tope);    // Salto de linea
+
+        if (s.simbolo != CIERRAPAREN) error(11, s.cadena);
+        s = aLex(archivo);
+        break;
    }
     return s;
-
 }
 tSimbolo condicion (tSimbolo s, FILE *archivo, tablaDeIdent tabla,int base, int posUltimoIdent,byte memoria[], int *tope){
 
     tTerminal operador;
     if(s.simbolo==ODD){
-        s=aLex(archivo);
+        s = aLex(archivo);
         s = expresion(s,archivo,tabla,base,posUltimoIdent, memoria, tope);
         cargarPopEax(memoria,tope);                                          // POP EAX
         cargarByte(0xA8,memoria,tope);                                      // TEST AL, ab
@@ -618,31 +530,31 @@ tSimbolo condicion (tSimbolo s, FILE *archivo, tablaDeIdent tabla,int base, int 
     }
         // Salto de memoria, según si entra ó no en la proposición que sigue despues de la condicion.
       // Si entra, salta al inicio de la prop, si no entra, salta al final de la prop.
-      cargarByte(0xE9,memoria, tope);                                        // JMP ...
-      cargarInt(0,memoria, tope);                                            // Fixup
+    cargarByte(0xE9,memoria, tope);                                        // JMP ...
+    cargarInt(0,memoria, tope);                                            // Fixup
     return s;
-
 }
+
 tSimbolo expresion (tSimbolo s, FILE *archivo, tablaDeIdent tabla,int base, int posUltimoIdent,byte memoria[], int *tope){
     tTerminal termAux;
-    printf("Entra a expresion\n");
-    if(s.simbolo==MAS){
-        s=aLex(archivo);
-        s=termino(s,archivo,tabla,base,posUltimoIdent, memoria, tope);
-    }else if(s.simbolo==MENOS){
-            s=aLex(archivo);
-            s = termino(s,archivo,tabla,base,posUltimoIdent, memoria, tope);
-            cargarPopEax(memoria,tope);
-            cargarByte(0xF7,memoria,tope);                                      // NEG EAX
-            cargarByte(0xD8,memoria,tope);                                      // ...
-            cargarByte(0x50,memoria,tope);
-           }else {
-            s = termino(s,archivo,tabla,base,posUltimoIdent, memoria, tope);
-           }
 
-    while(s.simbolo==MAS||s.simbolo==MENOS){
+    if(s.simbolo == MAS){
+        s = aLex(archivo);
+        s = termino(s,archivo,tabla,base,posUltimoIdent, memoria, tope);
+    }else if(s.simbolo==MENOS){
+        s = aLex(archivo);
+        s = termino(s,archivo,tabla,base,posUltimoIdent, memoria, tope);
+        cargarPopEax(memoria,tope);
+        cargarByte(0xF7,memoria,tope);                                      // NEG EAX
+        cargarByte(0xD8,memoria,tope);                                      // ...
+        cargarByte(0x50,memoria,tope);
+   }else {
+        s = termino(s,archivo,tabla,base,posUltimoIdent, memoria, tope);
+   }
+
+    while(s.simbolo == MAS || s.simbolo == MENOS){
         termAux = s.simbolo;
-        s=aLex(archivo);
+        s = aLex(archivo);
         s = termino(s,archivo,tabla,base,posUltimoIdent, memoria, tope);
         if (termAux == MAS) {
           cargarPopEax(memoria,tope);                                        // POP EAX
@@ -650,13 +562,13 @@ tSimbolo expresion (tSimbolo s, FILE *archivo, tablaDeIdent tabla,int base, int 
           cargarByte(0x01,memoria,tope);                                    // ADD EAX, EBX
           cargarByte(0xD8,memoria,tope);                                    // ...
           cargarByte(0x50,memoria,tope);                                    // PUSH EAX
-    } else if (termAux == MENOS) {
-              cargarPopEax(memoria,tope);                                        // POP EAX
-              cargarByte(0x5B,memoria,tope);                                    // POP EBX
-              cargarByte(0x93,memoria,tope);                                    // XCHG EAX, EBX
-              cargarByte(0x29,memoria,tope);                                    // SUB EAX, EBX
-              cargarByte(0xD8,memoria,tope);                                    // ...
-              cargarByte(0x50,memoria,tope);                                    // PUSH EAX
+        } else if (termAux == MENOS) {
+          cargarPopEax(memoria,tope);                                        // POP EAX
+          cargarByte(0x5B,memoria,tope);                                    // POP EBX
+          cargarByte(0x93,memoria,tope);                                    // XCHG EAX, EBX
+          cargarByte(0x29,memoria,tope);                                    // SUB EAX, EBX
+          cargarByte(0xD8,memoria,tope);                                    // ...
+          cargarByte(0x50,memoria,tope);                                    // PUSH EAX
         }
     }
     return s;
@@ -668,10 +580,7 @@ tSimbolo termino (tSimbolo s, FILE *archivo, tablaDeIdent tabla,int base, int po
         tTerminal op = s.simbolo;
         s = aLex(archivo);
         s = factor(s,archivo,tabla,base, posUltimoIdent, memoria, tope);
-
-
-
-        if(op==MULTIPLICAR){
+        if(op == MULTIPLICAR){
             cargarPopEax(memoria,tope); // pop Eax
             cargarByte(0x5B,memoria,tope); //pop EBX
             cargarByte(0xF7,memoria,tope); //IMUL
@@ -692,13 +601,9 @@ tSimbolo termino (tSimbolo s, FILE *archivo, tablaDeIdent tabla,int base, int po
 }
 tSimbolo factor (tSimbolo s, FILE *archivo, tablaDeIdent tabla,int base, int posUltimoIdent, byte memoria[], int *tope){
     int p;
-    printf("entro a factor");
-    printf("%s",s.cadena);
     switch(s.simbolo){
     case IDENT:
         p = buscarIdent(s.cadena, tabla, 0, posUltimoIdent);
-        printf("%d\n",base);
-        printf("%d",posUltimoIdent);
         if (p == -1) error(15, s.cadena);                                    // identificador no encontrado
           if (tabla[p].tipo == PROCEDURE) {
             error(18, s.cadena);                                               // Error semantico, se esperaba un VAR o CONST
@@ -713,31 +618,24 @@ tSimbolo factor (tSimbolo s, FILE *archivo, tablaDeIdent tabla,int base, int pos
             cargarByte(0x50,memoria,tope);                                  // PUSH EAX
           }
         s=aLex(archivo);
-        //hacer MOV EAX EDI
-        //PUSH EAX
         break;
+
     case NUMERO:
          cargarByte(0xB8,memoria,tope);                                    // MOV EAX .... (B8 gh ef cd ab)
          cargarInt(atoi(s.cadena),memoria,tope);                           // Direccionamiento inmediato
          cargarByte(0x50,memoria,tope);                                    // PUSH EAX
          s = aLex(archivo);
-        //hacer MOV EAX EDI
-        //PUSH EAX
         break;
+
     case ABREPAREN:
-        s=aLex(archivo);
+        s = aLex(archivo);
         s = expresion(s,archivo,tabla,base,posUltimoIdent, memoria, tope);
-        if(s.simbolo==CIERRAPAREN){
-                s=aLex(archivo);
+        if(s.simbolo == CIERRAPAREN){
+            s=aLex(archivo);
         } else {
             error(11,s.cadena);
         }
         break;
-        //buscar en el apunte el pull pull push
-        //ESTO PROBABLEMENTE NO SE HACE ASÍ. BUSCAR CÓMO ERA
-        cargarPopEax(memoria,tope); // pop Eax
-        cargarPopEax(memoria,tope); // pop Eax
-        cargarByte(0x50,memoria,tope);
     }
     return s;
 }
@@ -2880,15 +2778,15 @@ void cargarPopEax(byte memoria[], int *tope){
     }
 }
 
-void cargarInt(int n,byte memoria[], int *tope){
+void cargarInt(int dato,byte memoria[], int *tope){
 
   unsigned int k = 4294967295; // -1 en 4 bytes (FF FF FF FF)
   unsigned int d;
 
-  if (n < 0) {
-    d = k + n + 1;
+  if (dato < 0) {
+    d = k + dato + 1;
   } else {
-    d = (unsigned int) n;
+    d = (unsigned int) dato;
   }
 
   // Como la PC es little endian, se insertan al reves, de a pares
@@ -2898,14 +2796,14 @@ void cargarInt(int n,byte memoria[], int *tope){
   cargarByte(d / 0x1000000 % 0x100, memoria, tope); // los 2 siguientes
 }
 
-void cargarIntEn (int n, byte memoria [], int dirMem){
+void cargarIntEn (int dato, byte memoria [], int dirMem){
     unsigned int k = 4294967295; // -1 en 4 bytes (FF FF FF FF)
     unsigned int num;
 
-    if (n < 0) {
-        num = k + n + 1;
+    if (dato < 0) {
+        num = k + dato + 1;
     } else {
-        num = (unsigned int) n;
+        num = (unsigned int) dato;
     }
 
     memoria[(dirMem)]=num%256;//printf("\n %d \t",memoria[*topememoria]);
@@ -2914,7 +2812,26 @@ void cargarIntEn (int n, byte memoria [], int dirMem){
     memoria[(dirMem + 3)]=(num/256/256/256);//printf(" %d \t",memoria[*topememoria]);
 }
 
-int leerIntDe (int n,byte memoria[]){
+int leerIntDe(int n,byte memoria[]){
 
     return memoria[n]+(memoria[n+1]*256)+(memoria[n+2]*256*256)+(memoria[n+3]*256*256*256);
+}
+
+void escribirCadena(tSimbolo s, byte memoria[], int *tope) {
+    int base, baseOfCode, imageBase, posCadena;
+    int sizeCadena = strlen(s.cadena);
+
+    baseOfCode = leerIntDe(204, memoria);
+    imageBase = leerIntDe(212, memoria);
+    base = baseOfCode + imageBase;
+    posCadena = base + (*tope) - 0x200 + 15;
+    cargarByte(0xB8, memoria, tope);                                      // MOV EAX, ....
+    cargarInt(posCadena, memoria, tope);                                  // Ubicacion absoluta de la cadena
+    cargarByte(0xE8, memoria, tope);                                      // CALL dir
+    cargarInt((0x3E0 - (*tope) - 4), memoria, tope);    // Rutina de impresion por pantalla
+    cargarByte(0xE9, memoria, tope);                                      // JMP ....
+    cargarInt(sizeCadena - 1, memoria, tope);
+    for (int i = 1; i < (sizeCadena - 1); i++) cargarByte(s.cadena[i], memoria, tope);
+    cargarByte(0, memoria, tope);
+
 }
