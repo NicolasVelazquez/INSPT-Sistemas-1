@@ -17,7 +17,7 @@
 /*** NUEVOS TIPOS ***/
 
 typedef enum {NULO, FIN_DE_ARCHIVO, BEGIN, END, ABREPAREN, CIERRAPAREN, READLN, WRITE, WRITELN, VAR, CADENA, IDENT, NUMERO, PUNTO, COMA, PTOCOMA, MAS,
-               CONST, IGUAL,MAYOR, MENOR, PROCEDURE, ASIGNAR, CALL, IF, THEN, ELSE, WHILE, DO, ODD, DISTINTO, MENORIGUAL, MAYORIGUAL,MENOS, MULTIPLICAR, DIVIDIR, HALT } tTerminal;
+               CONST, IGUAL,MAYOR, MENOR, PROCEDURE, ASIGNAR, CALL, IF, THEN, ELSE, NOT, WHILE, DO, ODD, DISTINTO, MENORIGUAL, MAYORIGUAL,MENOS, MULTIPLICAR, DIVIDIR, HALT, FOR } tTerminal;
 
 
 typedef struct {
@@ -161,7 +161,7 @@ tSimbolo programa (tSimbolo s, FILE *archivo, byte memoria[], int *tope){
 }
 
 void seccionFinal(int contadorVariables, byte memoria[], int *tope){
-    int distancia = 0x588 - (*tope + 5); // Calcula la distancia hasta la instrucción de finalización de programa (0x588 para windows)
+    int distancia = 0x588 - (*tope + 5); // Calcula la distancia hasta la instrucción de finalización de programa
     cargarByte(0xE9, memoria, tope);
     cargarInt(distancia, memoria, tope);
 
@@ -305,7 +305,7 @@ tSimbolo bloque (tSimbolo s, FILE *archivo, tablaDeIdent tabla, int base, byte m
     return s;
 }
 tSimbolo proposicion(tSimbolo s, FILE *archivo, tablaDeIdent tabla,int base, int posUltimoIdent,byte memoria[],int *tope, int *contadorVariables){
-    int p, posPrevCond, posPostCond, origSalto, destSalto, dist;
+    int p, posPrevCond, posPostCond, origSalto, destSalto, dist, posPrevProp;
 
     switch(s.simbolo){
     case IDENT:
@@ -404,6 +404,91 @@ tSimbolo proposicion(tSimbolo s, FILE *archivo, tablaDeIdent tabla,int base, int
 
         break;
 
+    case DO:
+        s = aLex(archivo);
+
+        posPrevProp = (*tope);
+        s = proposicion(s,archivo,tabla,base,posUltimoIdent,memoria, tope, contadorVariables);
+
+        if (s.simbolo != WHILE) error(19, s.cadena);
+        s = aLex(archivo);
+
+        s = condicion(s,archivo,tabla,base,posUltimoIdent, memoria, tope);
+
+        cargarIntEn(5, memoria, (*tope) - 4);
+        cargarByte(0xE9, memoria, tope);
+        cargarInt(posPrevProp - (*tope) - 4, memoria, tope);
+
+        break;
+
+    case FOR:
+        s = aLex(archivo);
+
+        if(s.simbolo != ABREPAREN) error(10 , s.cadena);
+
+        s = aLex(archivo);
+
+        //Primero
+        if(s.simbolo != IDENT) error(2, s.cadena);
+
+        int p = buscarIdent(s.cadena, tabla, 0, posUltimoIdent);
+
+        if (p == -1) error(15, s.cadena);
+        if (tabla[p].tipo != VAR) error(17, s.cadena);
+
+        s = aLex(archivo);
+        if (s.simbolo != ASIGNAR) error(6, s.cadena);
+
+        s = aLex(archivo);
+        s = expresion(s, archivo, tabla, base, posUltimoIdent, memoria, tope);
+
+        cargarPopEax(memoria, tope);
+        cargarByte(0x89, memoria, tope);
+        cargarByte(0x87, memoria, tope);
+        cargarInt(tabla[p].valor, memoria, tope);
+
+        //Segundo
+        if (s.simbolo != PTOCOMA) error(5, s.cadena);
+
+        posPrevCond = (*tope);
+        s = aLex(archivo);
+        s = condicion(s,archivo,tabla,base,posUltimoIdent, memoria, tope);
+        if (s.simbolo != PTOCOMA) error(5, s.cadena);
+        posPostCond = (*tope);
+
+        //Tercero
+        s = aLex(archivo);
+
+        if (s.simbolo != IDENT) error(2, s.cadena);
+
+        p = buscarIdent(s.cadena, tabla, 0, posUltimoIdent);
+
+        if (p == -1) error(15, s.cadena);
+        if (tabla[p].tipo != VAR) error(17, s.cadena);
+
+        s = aLex(archivo);
+        if (s.simbolo != ASIGNAR) error(6, s.cadena);
+
+        s = aLex(archivo);
+        s = expresion(s, archivo, tabla, base, posUltimoIdent, memoria, tope);
+        cargarPopEax(memoria, tope);
+        cargarByte(0x89, memoria, tope);
+        cargarByte(0x87, memoria, tope);
+        cargarInt(tabla[p].valor, memoria, tope);
+
+        if (s.simbolo != CIERRAPAREN) error(11, s.cadena);
+        s = aLex(archivo);
+
+        if (s.simbolo != DO) error(9, s.cadena);
+        s = aLex(archivo);
+        s = proposicion(s,archivo,tabla,base,posUltimoIdent,memoria, tope, contadorVariables);
+
+        cargarByte(0xE9, memoria, tope);
+        cargarInt(posPrevCond - ((*tope) + 4), memoria, tope);
+        cargarIntEn((*tope) - posPostCond, memoria, posPostCond - 4);
+
+        break;
+
     case READLN:
         s = aLex(archivo);
         if (s.simbolo != ABREPAREN) error(10, s.cadena);
@@ -494,11 +579,12 @@ tSimbolo proposicion(tSimbolo s, FILE *archivo, tablaDeIdent tabla,int base, int
         seccionFinal(*contadorVariables, memoria, tope);
         s = aLex(archivo);
         break;
-   }
+    }
+
     return s;
 }
 tSimbolo condicion (tSimbolo s, FILE *archivo, tablaDeIdent tabla,int base, int posUltimoIdent,byte memoria[], int *tope){
-
+    int ifNot = 0; //flag if not
     tTerminal operador;
     if(s.simbolo==ODD){
         s = aLex(archivo);
@@ -509,6 +595,11 @@ tSimbolo condicion (tSimbolo s, FILE *archivo, tablaDeIdent tabla,int base, int 
         cargarByte(0x7B,memoria,tope);                                      // JPO ab     => Jump if parity odd
         cargarByte(0x05,memoria,tope);                                      // ... (ab)   => 5 bytes
     }else {
+
+        if(s.simbolo == NOT){
+            ifNot = 1;
+            s = aLex(archivo);
+        }
         s = expresion(s,archivo,tabla,base,posUltimoIdent, memoria, tope);
 
         operador=s.simbolo;     // Guardo el operador y leo la siguiente expresion
@@ -547,6 +638,11 @@ tSimbolo condicion (tSimbolo s, FILE *archivo, tablaDeIdent tabla,int base, int 
             cargarByte(0x05,memoria, tope);
             break;
             default: error(12,s.cadena);
+        }
+
+        if(ifNot){ //Si es un IF NOT, al ser TRUE va a saltar a este JUMP y va a ir al JUMP que salta la proposición
+            cargarByte(0xE9, memoria, tope); //Si es false va a ir directo a este JUMP y evitar el JUMP que salta la proposición
+            cargarInt(5, memoria, tope);
         }
     }
         // Salto de memoria, según si entra ó no en la proposición que sigue despues de la condicion.
@@ -721,6 +817,9 @@ void error(int num, char * ch){
   case 18:
     printf("Error semantico, el identificador \"%s\" no es de tipo NUMERO\n", ch);
     break;
+  case 19:
+    printf("Error, se esperaba un WHILE: %s\n", ch);
+    break;
     printf("Error generico\n");
     break;
   }
@@ -768,6 +867,8 @@ tSimbolo aLex(FILE* fp) {
             else if (strcmp(cadenaAux, "DO") == 0) a.simbolo = DO;
             else if (strcmp(cadenaAux, "ODD") == 0) a.simbolo = ODD;
             else if (strcmp(cadenaAux, "HALT") == 0) a.simbolo = HALT;
+            else if (strcmp(cadenaAux, "NOT") == 0) a.simbolo = NOT;
+            else if (strcmp(cadenaAux, "FOR") == 0) a.simbolo = FOR;
             else a.simbolo = IDENT;
 
         } else if (isdigit(c)) {
@@ -932,6 +1033,10 @@ void imprimir(tSimbolo simb) {
             break;
         case HALT: printf("HALT");
             break;
+        case NOT: printf("NOT");
+            break;
+        case FOR: printf("FOR");
+            break;
     }
     printf ("\n");
 }
@@ -954,8 +1059,6 @@ char* generarNombreEjecutable(char nombre[],char nombreExe[]){
     //char nombreExe[80];
     //char *nombreExe=(char*)malloc(sizeof(char)*80);
     int largo=0,posicion=-1, i, j;
-
-    printf("Comienzo\n");
 
 	while(nombre[largo]!='\0'){
         largo++;
@@ -2781,8 +2884,6 @@ void grabarArchivoEjecutable(byte memoria[], int *tope, char* nombre){
 
     int i;
     archivo=fopen(nombre,"wb");
-    printf("%d\n", tope);
-    printf("%s\n", nombre);
 
     for(i=0;i<(*tope);i++){
        fwrite(&memoria[i],sizeof(byte),1,archivo);
