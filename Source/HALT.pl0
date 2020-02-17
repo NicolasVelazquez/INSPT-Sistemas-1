@@ -1,0 +1,11 @@
+var X;
+
+begin
+  WRITE('Ingrese un numero o cero para salir: ');
+  READLN(X);
+  
+  IF X = 0 THEN HALT;
+
+  WRITE('Se ingreso el numero ');
+  WRITELN(X);
+end.

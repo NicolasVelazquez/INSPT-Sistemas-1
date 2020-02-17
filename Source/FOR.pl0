@@ -1,0 +1,17 @@
+var X, Y;
+
+begin
+  FOR (X := 0; X < 10; X := X + 1) DO
+    BEGIN
+      WRITE('Iteracion numero ');
+      WRITELN(X);
+    END;
+  WRITELN('Sigue el programa');
+  WRITELN('Haciendo otras cosas');
+  WRITELN('Vuelve a iterar');
+  FOR (X := 0; X < 5; X := X + 1) DO
+    BEGIN
+      WRITE('Iteracion numero ');
+      WRITELN(X);
+    END;
+end.

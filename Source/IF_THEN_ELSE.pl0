@@ -1,0 +1,18 @@
+var X, Y;
+
+begin
+  WRITE('Ingrese un numero: ');
+  READLN(X);
+  
+  IF X > 0 THEN
+    BEGIN
+        WRITELN('El numero es mayor que cero');
+        WRITELN;
+    END
+  ELSE
+    WRITELN('El numero es menor que cero');
+
+  WRITELN;
+  WRITELN('Fin del programa');
+
+end.

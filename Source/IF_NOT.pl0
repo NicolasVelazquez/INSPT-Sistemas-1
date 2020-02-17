@@ -1,0 +1,14 @@
+var X;
+
+begin
+  WRITE('Ingrese un numero o cero para salir: ');
+  READLN(X);
+  
+  IF NOT X > 0 THEN
+    BEGIN
+        WRITELN('El numero ingresado es negativo!')
+    END;
+
+  WRITE('Se ingreso el numero ');
+  WRITELN(X);
+end.
