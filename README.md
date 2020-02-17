@@ -1,4 +1,4 @@
 # INSPT-Sistemas-1
 
-Compilador
-Ejercicios NASM
+- Compilador
+- Ejercicios NASM
