@@ -36,6 +36,10 @@ section .bss                     ; SECCION DE LAS VARIABLES
 
 numero:
         resd    1                ; 1 dword (4 bytes)
+numero2:
+        resd    1                ; 1 dword (4 bytes)
+numeroAux:
+        resd    1                ; 1 dword (4 bytes)
 
 cadena:
         resb    0x0100           ; 256 bytes
@@ -61,12 +65,6 @@ fmtLF:
 
 inicioStr:
     db    "Ingrese la cadena a revisar si es un palindromo:", 0
-
-siStr:
-    db    "Es palindromo", 0
-
-noStr:
-    db    "No es palindromo", 0
 
 
 section .text                    ; SECCION DE LAS INSTRUCCIONES
@@ -145,53 +143,51 @@ top:
 
         call leerCadena
 
-medirCadena:
+medirCadena:                                    ; Calculo el lenght de la cadena recorriendola e incrementando un contador
         mov al, [edi + cadena]
         cmp al, 0
-        je mid
+        je dividirPor2
         inc edi
         jmp medirCadena
-mid:
-        mov [numero], edi                  ; PASO EL NÚMERO RECIÉN LEÍDO A EAX
-        call mostrarNumero
-        call mostrarSaltoDeLinea
 
-dividirPor2:
-        mov eax, [numero]
+dividirPor2:                                    ; Divido el lenght de la cadena por 2 para obtener la posición de su mitad
+        mov eax, edi
         mov ebx, 2
+        xor edx, edx
         div ebx
+        mov [numeroAux], eax
         cmp edx, 0
         je recorrer
 
 recorrer:
-        
-        mov [numero], eax
-        call mostrarNumero
-        call mostrarSaltoDeLinea
-        mov [numero], esi
-        call mostrarNumero
-        call mostrarSaltoDeLinea
-
-        cmp esi, eax
+        cmp esi, [numeroAux]                    ; Si llegué a la mitad de la cadena significa que ha sido recorrida completamente y los caracteres son iguales
         je esPalindromo
 
-        mov ah, [esi + cadena]
-        mov [caracter], ah
-        mov ah, [caracter]
+        mov al, [cadena + esi]                          
+        mov [numero], al     
+        mov ecx, [numero]
 
-        mov al, [edi - 1 + cadena]
-        mov [caracter], al
-        call mostrarCaracter
-        call mostrarSaltoDeLinea
+        mov bh, [cadena + edi - 1]              ; Le resto 1 porque edi es igual al length de la cadena
+        mov [numero2], bh   
+        mov ebx, [numero2]
 
-        cmp [caracter], ah
-        je esPalindromo
-        jmp finPrograma
+        inc esi                                 ; Incremento el índice que se mueve desde el principio y hacia la derecha de la cadena
+        dec edi                                 ; Decremento el índice que se mueve desde el final de la cadena y hacia la izquierda de la cadena
+
+        cmp ebx, ecx
+        je recorrer                             ; Si lo caracteres son iguales sigo recorriendo, si no, salgo
+        jmp noPalindromo
 
 esPalindromo:
         mov [caracter], byte 'S'
         call mostrarCaracter
-        call mostrarSaltoDeLinea                
+        call mostrarSaltoDeLinea
+        jmp finPrograma
+
+noPalindromo:
+        mov [caracter], byte 'N'
+        call mostrarCaracter
+        call mostrarSaltoDeLinea               
 
 finPrograma:
         call mostrarSaltoDeLinea
