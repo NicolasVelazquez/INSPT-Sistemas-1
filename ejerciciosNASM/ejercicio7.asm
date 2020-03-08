@@ -174,7 +174,7 @@ _start:
 main:                            ; PUNTO DE INICIO DEL PROGRAMA
 	mov esi, 0
 	mov ebx, 0
-	mov ecx, 0
+	mov ecx, -9999
 	mov [max], ecx
 copiaAcadena1:
 	mov al, [ebx+nStr]
@@ -249,7 +249,7 @@ copiaAcadena3:
 	add esi, 4
 
 	cmp eax, [max]
-	ja colocarMax
+	jg colocarMax
 
 volverColocar:
 	inc dword [c]

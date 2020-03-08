@@ -152,7 +152,7 @@ top:
 ordenar:
 		mov ecx, [x+esi]
 		cmp ecx, [x+esi+4]
-		ja ubicarMayor
+		jg ubicarMayor
 		add esi, 4
 		cmp esi, 40
 		je reiniciar
