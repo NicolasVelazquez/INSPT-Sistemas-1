@@ -1,4 +1,4 @@
-; Se ingresa una matriz de NxM componentes. La computadora indica el elemento máximo de toda la matriz y las posiciones en que aparece.
+; Se ingresa una matriz. La computadora muestra los valores en su diagonal segundaria y debajo el producto de éstos números.
 
         global main              ; ETIQUETAS QUE MARCAN EL PUNTO DE INICIO DE LA EJECUCION
         global _start
@@ -14,6 +14,8 @@ section .bss                     ; SECCION DE LAS VARIABLES
 
 numero:
         resd    1                ; 1 dword (4 bytes)
+numero2:
+        resd    1
 
 cadena:
         resb    0x0100           ; 256 bytes
@@ -26,24 +28,13 @@ matriz:
 	resd	100		 ;  matriz como maximo de 10x10
 		
 n:
-	resd	1		 ;  filas de la matriz
-m:
-	resd	1		 ;  columnas de la matriz
+	resd	1		 ;  lado de la matriz (cuadrada)
 
 f:
 	resd	1		 ; fila
 		
 c:
 	resd	1		 ; columna
-
-max:
-	resd	1		 ; Donde vamos a guardar el número Máximo
-
-fMax:
-	resd	1		 ; fila Max
-
-cMax:
-	resd	1		 ; columna Max
 
 section .data                    ; SECCION DE LAS CONSTANTES
 
@@ -113,49 +104,13 @@ mostrarSaltoDeLinea:             ; RUTINA PARA MOSTRAR UN SALTO DE LINEA USANDO 
 salirDelPrograma:                ; PUNTO DE SALIDA DEL PROGRAMA USANDO EXIT
         push 0
         call exit
-imprimirM:						 ; Me pareció más limpio imprimir así
-		mov [caracter], byte 'M'
-		call mostrarCaracter
-		mov [caracter], byte ':'
-		call mostrarCaracter
-		mov [caracter], byte ' '
-		call mostrarCaracter
-		ret
-imprimirMax:						 
-		mov [caracter], byte 'M'
-		call mostrarCaracter
-		mov [caracter], byte 'A'
-		call mostrarCaracter
-		mov [caracter], byte 'X'
-		call mostrarCaracter
-		mov [caracter], byte ':'
-		call mostrarCaracter
-		mov [caracter], byte ' '
-		call mostrarCaracter
-		ret
-imprimirMaxPosF:						 
-		mov [caracter], byte 'F'
-		call mostrarCaracter
-		mov [caracter], byte ':'
-		call mostrarCaracter
-		mov [caracter], byte ' '
-		call mostrarCaracter
-		ret
-imprimirMaxPosC:						 
-		mov [caracter], byte 'C'
-		call mostrarCaracter
-		mov [caracter], byte ':'
-		call mostrarCaracter
-		mov [caracter], byte ' '
-		call mostrarCaracter
-		ret
 
 _start:
 main:                            ; PUNTO DE INICIO DEL PROGRAMA
 	mov esi, 0
 	mov ebx, 0
-	mov ecx, -9999
-	mov [max], ecx
+	mov eax, 1
+	mov [numero2], eax
 copiaAcadena1:
 	mov al, [ebx+nStr]
 	mov [ebx+cadena], al
@@ -173,21 +128,8 @@ seguir1:
 	cmp eax, 11
 	jl seguir2
 	jmp main
-seguir2:						; Hago lo mismo que arriba pero con char en vez de cadena
-	mov [n], eax				; n serán las filas
-
-	call imprimirM
-	call leerNumero
-	mov eax, [numero]
-	cmp eax, 0
-	jg seguir3
-	jmp main
-seguir3:
-	cmp eax, 11
-	jl seguir4
-	jmp main
-seguir4:
-	mov [m], eax				; Guardo en m el segundo valor ingresado que serán las columnas
+seguir2:		
+	mov [n], eax
 		
 	mov [f], dword 0
 proximoF:
@@ -227,14 +169,10 @@ copiaAcadena3:
 	mov eax, [numero]
 	mov [esi+matriz], eax
 	add esi, 4
-
-	cmp eax, [max]
-	jg colocarMax							; Si el número ingresado es mayor al máximo, es el nuevo máximo
-
-volverColocar:								; Pongo ésta sección para volver cuando encuentre un Max
+		
 	inc dword [c]
 	mov eax, [c]
-	cmp eax, [m]
+	cmp eax, [n]
 	jb proximoC
 		
 	inc dword [f]
@@ -244,30 +182,37 @@ volverColocar:								; Pongo ésta sección para volver cuando encuentre un Max
 
 	call mostrarSaltoDeLinea
 	
-mostrarMax:
-	mov eax, [max]
-	mov [numero], eax
-	call imprimirMax
-	call mostrarNumero
-	call mostrarSaltoDeLinea
+	mov edi, 0
+	mov esi, matriz
+cicloDiagonal:
+	add esi, [n]
+	add esi, [n]
+	add esi, [n]
+	add esi, [n]
+	sub esi, 4
 
-	mov eax, [fMax]
+	mov eax, [esi]
 	mov [numero], eax
-	call imprimirMaxPosF
 	call mostrarNumero
-	call mostrarSaltoDeLinea
 
-	mov eax, [cMax]
-	mov [numero], eax
-	call imprimirMaxPosC
-	call mostrarNumero
-	call mostrarSaltoDeLinea
+	mov eax, [esi]
+	mov ebx, [numero2]					; En numero2 vamos a estar acumulando la multiplicación
+	mul ebx
+	mov [numero2], eax
+
+	mov eax, 32
+	mov [caracter], eax
+	call mostrarCaracter
 	
+	inc edi
+	cmp edi, [n]
+	jl cicloDiagonal
+
+	call mostrarSaltoDeLinea
+	call mostrarSaltoDeLinea
+
+	mov eax, [numero2]
+	mov [numero], eax
+	call mostrarNumero
+		
     jmp salirDelPrograma
-colocarMax:									; Coloco en las variables reservadas el número máx y su fila y columna
-	mov [max], eax
-	mov eax, [f]
-	mov [fMax], eax
-	mov eax, [c]
-	mov [cMax], eax
-	jmp volverColocar

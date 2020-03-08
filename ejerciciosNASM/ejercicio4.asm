@@ -1,26 +1,4 @@
-; Se ingresa una cadena. La computadora la muestra en mayusculas.
-;
-;
-; En Windows (1 en la consola de NASM; 2 y 3 en la consola de Visual Studio):
-; 1) nasm -f win32 ej3.asm --PREFIX _
-; 2) link /out:ej3.exe ej3.obj libcmt.lib
-; 3) ej3
-;
-; En Windows (1 en la consola de NASM; 2 y 3 en la consola de Windows, dentro de la carpeta [ajustando los nros. de version]: C:\Qt\Qt5.3.1\Tools\mingw482_32\bin ):
-; 1) nasm -f win32 ej3.asm --PREFIX _
-; 2) gcc ej3.obj -o ej3.exe
-; 3) ej3
-;
-; En GNU/Linux:
-; 1) nasm -f elf ej3.asm
-; 2) ld -s -o ej3 ej3.o -lc -I /lib/ld-linux.so.2
-; 3) ./ej3
-;
-; En GNU/Linux de 64 bits (Previamente, en Ubuntu, hay que ejecutar: sudo apt-get install libc6-dev-i386):
-; 1) nasm -f elf ej3.asm
-; 2) ld -m elf_i386 -s -o ej3 ej3.o -lc -I /lib/ld-linux.so.2
-; 3) ./ej3
-
+; Se ingresa una cadena. La computadora indica si es un palíndromo.
 
         global main              ; ETIQUETAS QUE MARCAN EL PUNTO DE INICIO DE LA EJECUCION
         global _start

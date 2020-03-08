@@ -1,26 +1,4 @@
-; Se ingresa una cadena. La computadora la muestra en mayusculas.
-;
-;
-; En Windows (1 en la consola de NASM; 2 y 3 en la consola de Visual Studio):
-; 1) nasm -f win32 ej3.asm --PREFIX _
-; 2) link /out:ej3.exe ej3.obj libcmt.lib
-; 3) ej3
-;
-; En Windows (1 en la consola de NASM; 2 y 3 en la consola de Windows, dentro de la carpeta [ajustando los nros. de version]: C:\Qt\Qt5.3.1\Tools\mingw482_32\bin ):
-; 1) nasm -f win32 ej3.asm --PREFIX _
-; 2) gcc ej3.obj -o ej3.exe
-; 3) ej3
-;
-; En GNU/Linux:
-; 1) nasm -f elf ej3.asm
-; 2) ld -s -o ej3 ej3.o -lc -I /lib/ld-linux.so.2
-; 3) ./ej3
-;
-; En GNU/Linux de 64 bits (Previamente, en Ubuntu, hay que ejecutar: sudo apt-get install libc6-dev-i386):
-; 1) nasm -f elf ej3.asm
-; 2) ld -m elf_i386 -s -o ej3 ej3.o -lc -I /lib/ld-linux.so.2
-; 3) ./ej3
-
+;  Se ingresan 10 números enteros. La computadora los muestra en orden creciente.
 
         global main              ; ETIQUETAS QUE MARCAN EL PUNTO DE INICIO DE LA EJECUCION
         global _start
@@ -44,11 +22,9 @@ caracter:
         resb    1                ; 1 byte (dato)
         resb    3                ; 3 bytes (relleno)
 
-
-
 section .data                    ; SECCION DE LAS CONSTANTES
 
-x:    
+x:                               ; Inicializo el array
    dd  10
    dd  9
    dd  8
@@ -116,7 +92,7 @@ mostrarSaltoDeLinea:             ; RUTINA PARA MOSTRAR UN SALTO DE LINEA USANDO 
         add esp, 4
         ret
 
-mostrarEspacio:             ; RUTINA PARA MOSTRAR UN SALTO DE LINEA USANDO PRINTF
+mostrarEspacio:             ; RUTINA PARA MOSTRAR UN ESPACIO USANDO PRINTF
         mov [caracter], byte ' '
         call mostrarCaracter
         ret
@@ -135,26 +111,25 @@ main:                            ; PUNTO DE INICIO DEL PROGRAMA
         mov ebp, 0
         mov edx, 0
 
-top:
+top:                             ; Llenamos el array
         call leerNumero
         mov eax, [numero]
         mov [x+edi], eax
-        add edi, 4
+        add edi, 4               ; Aumento de a 4 bytes porque es un dword
         add ebx, 1
-        cmp ebx, 10
+        cmp ebx, 10              ; Si llego a 10 ya completé el array
         jne top
 
         mov eax, 0
         mov ebx, 0
         mov edi, 0
 
-
 ordenar:
 		mov ecx, [x+esi]
 		cmp ecx, [x+esi+4]
 		jg ubicarMayor
 		add esi, 4
-		cmp esi, 40
+		cmp esi, 40               ; Como es un array de 10 números y ESI aumenta de a 4, si llego a 40 llegué al final del array
 		je reiniciar
 		jmp ordenar
 
@@ -163,11 +138,11 @@ ubicarMayor:
 		mov [x+esi], ebp
 		mov [x+esi+4], ecx
 		add esi, 4
-		add edx, 1
+		add edx, 1                ; EDX será nuestro flag para saber si hubo cambios en el array
 		jmp ordenar
 
 reiniciar:
-		cmp edx, 0
+		cmp edx, 0                ; Si EDX es 0 significa que no hubo movimientos en esta vuelta y el array está ordenado
 		je mostrar
 		mov esi, 0
 		mov edx, 0
